@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from knx_telegram_store import BufferedSqliteStore
+from knx_telegram_store import BufferedPostgresStore, BufferedSqliteStore
 from knx_telegram_store.backends.sqlite import SqliteStore
 
 import api
@@ -84,14 +84,15 @@ def test_read_only_sqlite_store_is_not_locked(tmp_path):
         store.begin_backup.assert_not_awaited()
 
 
-@patch("database.store.begin_backup", new_callable=AsyncMock)
-def test_other_backends_are_not_locked(mock_begin):
-    """The default test store is PostgreSQL, whose data a backup of this container does not copy."""
-    assert not isinstance(api.store, SqliteStore)
-    response = local.post("/api/backup/begin")
-    assert response.status_code == 200
-    assert response.json() == {"locked": False}
-    mock_begin.assert_not_awaited()
+def test_postgres_store_is_not_locked():
+    """A backup of this container does not copy PostgreSQL's data."""
+    store = BufferedPostgresStore("postgresql+asyncpg://user:pass@localhost/db")  # builds an engine, never connects
+    store.begin_backup = AsyncMock()
+    with patch("api.store", new=store):
+        response = local.post("/api/backup/begin")
+        assert response.status_code == 200
+        assert response.json() == {"locked": False}
+        store.begin_backup.assert_not_awaited()
 
 
 def test_store_error_is_reported():
